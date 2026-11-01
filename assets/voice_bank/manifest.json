@@ -1,0 +1,26 @@
+{
+  "system": "Mora Hybrid Voice Bank",
+  "version": "2.0",
+  "architecture": "Hybrid (Local Voice Bank 0ms + Real-time AI Neural Speech)",
+  "character": "Skirk (Genshin Impact / Mora Cel-Shaded 3D)",
+  "voice_actress": "Mamiko Noto (能登 麻美子)",
+  "language": "Japanese",
+  "source_video": "https://www.youtube.com/watch?v=bzPvcP0-omg",
+  "dataset_path": "assets/voice_dataset/skirk_all_voice_lines.mp3",
+  "training_slices": "assets/voice_dataset/slices/ (120 clean WAV studio files)",
+  "voice_bank": {
+    "greetings": ["greet_01.mp3", "greet_02.mp3"],
+    "patting": ["patting_01.mp3", "patting_02.mp3"],
+    "head": ["head_01.mp3", "head_02.mp3"],
+    "face": ["face_01.mp3", "face_02.mp3"],
+    "lips": ["lips_01.mp3", "lips_02.mp3"],
+    "chest": ["chest_01.mp3", "chest_02.mp3"],
+    "belly": ["belly_01.mp3"],
+    "pelvis": ["pelvis_01.mp3", "pelvis_02.mp3"],
+    "neck": ["neck_01.mp3"],
+    "shoulders": ["shoulders_01.mp3"],
+    "arms": ["arms_01.mp3"],
+    "thighs": ["thighs_01.mp3"],
+    "legs": ["legs_01.mp3"]
+  }
+}

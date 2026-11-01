@@ -1,0 +1,21 @@
+{
+  "active_character": "mora_redmagic",
+  "ai_provider": "gemini",
+  "online_fallback_enabled": true,
+  "gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+  "gemini_model": "gemini-2.0-flash",
+  "grok_api_key": "",
+  "grok_model": "grok-2-latest",
+  "openai_api_key": "",
+  "openai_model": "gpt-4o-mini",
+  "ollama_model": "llama3.2:latest",
+  "ollama_url": "http://127.0.0.1:11434",
+  "watch_screen_enabled": true,
+  "voice_enabled": false,
+  "volume": 100,
+  "auto_comment_interval_minutes": 0,
+  "show_chat_bubble": false,
+  "model_scale": 0.85,
+  "opacity": 0.95,
+  "roam_enabled": false
+}

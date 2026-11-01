@@ -1,0 +1,1746 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Mora 3D VTuber (Cel-Shaded Companion)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent !important;
+      background-color: transparent !important;
+      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+    #container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent !important;
+    }
+    /* Speech Bubble */
+    #bubble-container {
+      display: none !important;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      pointer-events: none;
+    }
+    .char-name {
+      color: #ff4d6d;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+    }
+    .live-badge {
+      color: #10b981;
+      font-weight: 700;
+      font-size: 10px;
+      border: 1px solid #10b981;
+      border-radius: 4px;
+      padding: 1px 6px;
+      background: rgba(16, 185, 129, 0.15);
+    }
+    .bubble-text {
+      color: #f8fafc;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-bottom: 10px;
+      word-break: break-word;
+      max-height: 85px;
+      overflow-y: auto;
+      cursor: text;
+    }
+    .bubble-text::-webkit-scrollbar {
+      width: 4px;
+    }
+    .bubble-text::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .input-row {
+      display: flex;
+      gap: 6px;
+    }
+    input[type="text"] {
+      flex: 1;
+      background: #0f1016;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #ffffff;
+      padding: 6px 10px;
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+      cursor: text;
+    }
+    input[type="text"]:focus {
+      border-color: #ff2b51;
+    }
+    .btn {
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    .btn-send {
+      background: #3b82f6;
+      color: white;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .btn-send:hover {
+      background: #60a5fa;
+      transform: translateY(-1px);
+    }
+    .btn-inspect {
+      background: linear-gradient(135deg, #ff2b51, #e11d48);
+      color: white;
+      padding: 6px 10px;
+      font-size: 11px;
+    }
+    .btn-inspect:hover {
+      background: #ff4d6d;
+      transform: translateY(-1px);
+    }
+    /* 3D WebGL Canvas */
+    #canvas3d {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      background: transparent !important;
+      z-index: 1;
+    }
+    #canvas3d:active {
+      cursor: grabbing;
+    }
+  </style>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="js/three.min.js"></script>
+  <script src="js/GLTFLoader.js"></script>
+</head>
+<body>
+  <div id="container">
+    <!-- Bong bóng thoại (Mặc định ẩn) -->
+    <div id="bubble-container">
+      <div class="header-row">
+        <span class="char-name">✨ Mora 3D VTuber (RedMagic)</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="live-badge">🔴 3D LIVE</span>
+          <button id="btn-close-bubble" title="Đóng khung chat (Mở lại: Nhấp đúp vào Mora hoặc chuột phải khay hệ thống)" style="background: transparent; border: none; color: #ff85a1; font-size: 15px; cursor: pointer; padding: 0 4px; line-height: 1; pointer-events: auto;">✕</button>
+        </div>
+      </div>
+      <div id="bubble-text" class="bubble-text">Mora đã sẵn sàng theo dõi từng thao tác chuột của bạn!</div>
+      <div class="input-row">
+        <input type="text" id="chat-input" placeholder="Hỏi Mora điều gì đó... (Enter)">
+        <button id="btn-send" class="btn btn-send" title="Gửi câu hỏi">➤</button>
+        <button id="btn-inspect" class="btn btn-inspect" title="Nhìn & nhận xét màn hình">👁️ Soi</button>
+      </div>
+    </div>
+
+    <!-- Canvas 3D Model -->
+    <canvas id="canvas3d"></canvas>
+  </div>
+
+  <script>
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      console.error('GLOBAL_ERROR: ' + msg + ' at line ' + lineNo + ':' + columnNo + (error ? ' stack: ' + error.stack : ''));
+      return false;
+    };
+
+    // 1. Tạo Toon Gradient Ramp mềm mại, dịu mắt (Không bị cháy sáng)
+    function createToonRamp() {
+      const colors = new Uint8Array([140, 195, 255]);
+      const tex = new THREE.DataTexture(colors, 3, 1, THREE.LuminanceFormat);
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+      tex.needsUpdate = true;
+      return tex;
+    }
+    const toonRamp = createToonRamp();
+
+    // 2. Setup Three.js Scene: Toàn thân từ đỉnh tóc đến gót giày (440x720 mặc định, tự co giãn theo tỷ lệ)
+    const canvas = document.getElementById('canvas3d');
+    let width = window.innerWidth || 440;
+    let height = window.innerHeight || 720;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 1000);
+    // Vị trí camera lùi góc nhìn mở rộng không gian phía trên đầu, bao trọn vẹn từ đỉnh kẹp tóc/chóp tóc đến tận gót giày mà không bao giờ bị cắt viền
+    camera.position.set(0, 0.86, 3.10);
+    camera.lookAt(0, 0.84, 0);
+
+    const renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x000000, 0);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+
+    // Tự động cập nhật tỷ lệ camera & khung vẽ khi cửa sổ được phóng to / thu nhỏ
+    function onWindowResize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    window.addEventListener('resize', onWindowResize);
+    // Tone mapping giúp màu sắc da và tóc mềm mại, không bị lóa trắng
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.88;
+
+    // Ánh sáng dịu mắt, ấm áp chuẩn anime
+    const ambientLight = new THREE.AmbientLight(0xfff5f0, 0.58);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.38);
+    dirLight.position.set(1.2, 2.5, 2.0);
+    scene.add(dirLight);
+
+    const rimLight = new THREE.DirectionalLight(0xff2b51, 0.22);
+    rimLight.position.set(-2.0, 1.0, -1.0);
+    scene.add(rimLight);
+
+    // 3. Khớp xương & Biểu cảm (Head, Eyes, Neck, Spine, Morph Targets)
+    let model = null;
+    let mixer = null;
+    let idleAction = null;
+
+    let headBone = null;
+    let neckBone = null;
+    let spineUpper = null;
+    let eyeLeft = null;
+    let eyeRight = null;
+
+    // Khớp xương phục vụ chuyển động đi bộ (Legs, Hips, Arms Locomotion)
+    let legLeftThigh = null, legLeftKnee = null, legLeftAnkle = null;
+    let legRightThigh = null, legRightKnee = null, legRightAnkle = null;
+    let pelvisBone = null;
+    let basePelvisY = 0;
+    let armLeftShoulder2 = null, armLeftElbow = null;
+    let armRightShoulder2 = null, armRightElbow = null;
+
+    let allBones = {};
+    let allBonesList = [];
+
+    // Morph Targets (Shape keys) cho chớp mắt và khẩu hình
+    let faceMesh = null;
+    let blinkIndex = -1;
+    let smileIndex = -1;
+    let mouthAIndex = -1;
+
+    let isSpeaking = false;
+    let speakTimer = 0;
+
+    let greetingAction = null;
+    let greetingTime = 0;
+
+    const loader = new THREE.GLTFLoader();
+    const modelUrl = window.location.protocol.startsWith('http') ? 'mora_3d.glb?v=' + Date.now() : 'mora_3d.glb';
+    loader.load(modelUrl, function(gltf) {
+      model = gltf.scene;
+      model.position.set(0, 0, 0);
+      scene.add(model);
+
+      // Kích hoạt Animation Chào Khởi Động: Khoanh tay cúi đầu -> Ngẩng lên nhìn user -> Cúi đầu chào -> Về pose mặc định
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        greetingAction = mixer.clipAction(gltf.animations[0]);
+        greetingAction.setLoop(THREE.LoopOnce);
+        greetingAction.clampWhenFinished = true;
+        greetingAction.play();
+        console.log('Playing Startup_Greeting animation successfully!');
+      }
+
+      model.traverse(function(child) {
+        if (child.isMesh && child.material) {
+          const mname = (child.name || '').toLowerCase();
+
+          // Mesh mặt chứa Shape Keys (Chớp mắt & Mở miệng)
+          if (mname.includes('face') || mname.includes('颜') || mname.includes('002')) {
+            faceMesh = child;
+            if (child.morphTargetDictionary) {
+              blinkIndex = child.morphTargetDictionary['[E] eyes closed'];
+              smileIndex = child.morphTargetDictionary['[E] eyes smile'];
+              mouthAIndex = child.morphTargetDictionary['[M] mouth A'];
+              console.log('Morph targets found:', { blinkIndex, smileIndex, mouthAIndex });
+            }
+          }
+
+          // Ẩn StarEye vì đây là mesh dư nằm sâu 3.6cm bên trong sọ gây lỗi thục mắt
+          if (mname.includes('stareye') || mname.includes('011')) {
+            child.visible = false;
+            return;
+          }
+
+          const isFace = mname.includes('face') || mname.includes('颜') || mname.includes('009');
+          const isEyeIris = !isFace && (mname === '7_eye' || mname.includes('eye') || mname.includes('iris'));
+          const isEyebrow = mname.includes('eyebrow') || mname.includes('007');
+          const isEyelash = !isFace && (mname.includes('double') || mname.includes('006') || mname.includes('lash'));
+          const isHair = mname.includes('hair') || mname.includes('hare') || mname.includes('after') || mname.includes('012') || mname.includes('013') || mname.includes('髮');
+          const isDress = mname.includes('sweet') || mname.includes('tail') || mname.includes('wing') || mname.includes('017') || mname.includes('018') || mname.includes('pickled') || mname.includes('裙');
+
+          // Phân tầng Render Order Anime chuẩn: Thân (1) -> Mặt/Lòng trắng (2) -> Mắt Ruby (3) -> Mí mắt (4) -> Lông mày (5) -> Tóc (10)
+          if (isHair) {
+            child.renderOrder = 10;
+          } else if (isEyebrow) {
+            child.renderOrder = 5;
+          } else if (isEyelash) {
+            child.renderOrder = 4;
+          } else if (isEyeIris) {
+            child.renderOrder = 3;
+          } else if (isFace) {
+            child.renderOrder = 2;
+          } else {
+            child.renderOrder = 1;
+          }
+
+          function createCustomToonMat(origMat) {
+            const matName = (origMat.name || '').toLowerCase();
+            // Tròng mắt Ruby (Iris): chỉ là material 目.001 hoặc mesh 7_Eye
+            const isIrisMat = isEyeIris || (matName.includes('目') && !matName.includes('白')) || matName.includes('iris');
+            const isScleraMat = matName.includes('白目') || matName.includes('sclera');
+            const isAlphaClip = isEyebrow || isEyelash || origMat.alphaTest > 0 || matName.includes('clip') || matName.includes('睫') || matName.includes('眉') || matName.includes('二重');
+            const isTransp = isIrisMat || isDress || origMat.transparent || matName === '髮+' || matName.includes('翼') || matName.includes('肌2_1') || matName.includes('尾2');
+
+            // Thiết lập Depth & Offset:
+            // - Da mặt và lòng trắng (sclera): depthWrite=true, depthTest=true để che phần tròng mắt nằm trong sọ!
+            // - Tròng mắt (iris): depthTest=true (BẮT BUỘC để không bị lồi ra khỏi mí mắt và má!), depthWrite=false, polygonOffsetFactor=-1 để nằm mượt mà ngay trên lòng trắng
+            // - Mí mắt / lông mày: polygonOffsetFactor=-2
+            const useOffset = isIrisMat || isAlphaClip;
+            const offsetFactor = isIrisMat ? -1 : (isAlphaClip ? -2 : 0);
+            const offsetUnits = isIrisMat ? -4 : (isAlphaClip ? -6 : 0);
+
+            const toonMat = new THREE.MeshToonMaterial({
+              map: origMat.map || null,
+              gradientMap: toonRamp,
+              color: origMat.color || new THREE.Color(0xf5f5f5),
+              side: (isHair || isDress || (isTransp && !isIrisMat)) ? THREE.DoubleSide : THREE.FrontSide,
+              depthTest: true, // Luôn bật depthTest để tròng mắt nằm gọn gàng bên trong hốc mắt
+              depthWrite: (isIrisMat || (isTransp && !isAlphaClip && !isScleraMat)) ? false : true,
+              alphaTest: isAlphaClip ? (origMat.alphaTest || 0.35) : 0,
+              transparent: isTransp || isAlphaClip,
+              polygonOffset: useOffset,
+              polygonOffsetFactor: offsetFactor,
+              polygonOffsetUnits: offsetUnits,
+              skinning: true,
+              morphTargets: true,
+              morphNormals: true
+            });
+
+            if (origMat.map) origMat.map.encoding = THREE.sRGBEncoding;
+            return toonMat;
+          }
+
+          if (Array.isArray(child.material)) {
+            child.material = child.material.map(createCustomToonMat);
+          } else {
+            child.material = createCustomToonMat(child.material);
+          }
+          child.material.needsUpdate = true;
+        }
+
+        // Nhận diện xương: Chuẩn hóa cả dấu gạch dưới '_' và dấu cách ' '
+        if (child.isBone) {
+          const rawName = child.name.toLowerCase();
+          const normName = rawName.replace(/[\s\-]+/g, '_');
+
+          if (normName === 'head_neck_upper' || normName === 'head') headBone = child;
+          if (normName === 'head_neck_lower' || normName === 'neck') neckBone = child;
+          if (normName === 'spine_upper' || normName === 'spine') spineUpper = child;
+
+          // Xương chân & hông cho hoạt ảnh đi bộ (Locomotion Bones)
+          if (normName === 'leg_left_thigh') legLeftThigh = child;
+          if (normName === 'leg_left_knee') legLeftKnee = child;
+          if (normName === 'leg_left_ankle') legLeftAnkle = child;
+          if (normName === 'leg_right_thigh') legRightThigh = child;
+          if (normName === 'leg_right_knee') legRightKnee = child;
+          if (normName === 'leg_right_ankle') legRightAnkle = child;
+          if (normName === 'pelvis' || normName === 'root_hips') {
+            pelvisBone = child;
+            basePelvisY = child.position.y;
+          }
+
+          // Xương cánh tay đánh nhịp khi bước đi
+          if (normName === 'arm_left_shoulder_2') armLeftShoulder2 = child;
+          if (normName === 'arm_left_elbow') armLeftElbow = child;
+          if (normName === 'arm_right_shoulder_2') armRightShoulder2 = child;
+          if (normName === 'arm_right_elbow') armRightElbow = child;
+          // Không can thiệp xương eyeball riêng lẻ vì xương mắt MMD có pivot lệch 3.3cm gây thục mắt 168 độ.
+          // Cả đầu và mắt quay đồng bộ hoàn hảo theo headBone và neckBone.
+
+          allBones[normName] = child;
+          allBonesList.push(child);
+        }
+      });
+
+      console.log('Mora Bones mapped successfully:', {
+        head: !!headBone,
+        neck: !!neckBone,
+        spine: !!spineUpper,
+        eyeL: !!eyeLeft,
+        eyeR: !!eyeRight
+      });
+
+      // KHỞI TẠO HỆ THỐNG VẬT LÝ CHO KHỚP XƯƠNG TÓC, CÁNH & BẦU NGỰC, TÀ ÁO
+      try {
+        initHairPhysics(allBones);
+        initBreastPhysics(allBonesList);
+        initSkirtPhysics(allBones);
+      } catch (err) {
+        console.error('CRITICAL INIT_HAIR_ERROR:', err.message, err.stack);
+      }
+    }, undefined, function(error) {
+      console.error('Error loading 3D model:', error);
+    });
+
+    // 3.5 HỆ THỐNG VẬT LÝ SÓNG TÓC ĐA KHỚP XƯƠNG (Multi-Joint Segment-by-Segment Wave Spring Physics)
+    let hairChains = [];
+    let prevHeadRotX = 0;
+    let prevHeadRotY = 0;
+    let dragImpulseX = 0;
+    let dragImpulseY = 0;
+
+    // Buffer lịch sử vận tốc và góc đầu để tạo sóng truyền trễ tự nhiên từ gốc tới ngọn
+    const HIST_LEN = 40;
+    let histHeadYaw = new Float32Array(HIST_LEN);
+    let histHeadPitch = new Float32Array(HIST_LEN);
+    let histAngVelY = new Float32Array(HIST_LEN);
+    let histAngVelX = new Float32Array(HIST_LEN);
+    let histDragX = new Float32Array(HIST_LEN);
+    let histDragY = new Float32Array(HIST_LEN);
+
+    function pushHistory(headYaw, headPitch, angVelY, angVelX, dX, dY) {
+      for (let k = HIST_LEN - 1; k > 0; k--) {
+        histHeadYaw[k] = histHeadYaw[k - 1];
+        histHeadPitch[k] = histHeadPitch[k - 1];
+        histAngVelY[k] = histAngVelY[k - 1];
+        histAngVelX[k] = histAngVelX[k - 1];
+        histDragX[k] = histDragX[k - 1];
+        histDragY[k] = histDragY[k - 1];
+      }
+      histHeadYaw[0] = headYaw;
+      histHeadPitch[0] = headPitch;
+      histAngVelY[0] = angVelY;
+      histAngVelX[0] = angVelX;
+      histDragX[0] = dX;
+      histDragY[0] = dY;
+    }
+
+    function initHairPhysics(bones) {
+      hairChains = [];
+      const chainDefs = [
+        // 1. Chùm tóc sau lưng bên trái (Back Left - trọn vẹn 21 khớp xương từ đỉnh đầu đến chót đuôi)
+        {
+          name: 'Back Left',
+          side: 'back',
+          boneNames: [
+            'hair_back_l_0_1', 'hair_back_l_1_1', 'hair_back_l_2_1', 'hair_back_l_3_1', 'hair_back_l_4_1',
+            'hair_back_l_5_1', 'hair_back_l_6_1', 'hair_back_l_7_1', 'hair_back_l_8_1', 'hair_back_l_9_1',
+            'hair_back_l_10_1', 'hair_back_l_11_1', 'hair_back_l_12_1', 'hair_back_l_13_1', 'hair_back_l_14_1',
+            'hair_back_l_15_1', 'hair_back_l_16_1', 'hair_back_l_17_1', 'hair_back_l_18_1', 'hair_back_l_19_1',
+            'hair_back_l_20_1'
+          ],
+          stiffness: 0.085, damping: 0.91, inertia: 0.45, windFreq: 1.35, windAmp: 0.16, phase: 2.4
+        },
+        // 2. Chùm tóc sau lưng chính giữa (Back Center - trọn vẹn 23 khớp xương chạy dọc sống lưng đến ngọn)
+        {
+          name: 'Back Center',
+          side: 'back',
+          boneNames: [
+            'hair_back_c_0_1', 'hair_back_c_1_1', 'hair_back_c_2_1', 'hair_back_c_3_1', 'hair_back_c_4_1',
+            'hair_back_c_5_1', 'hair_back_c_6_1', 'hair_back_c_7_1', 'hair_back_c_8_1', 'hair_back_c_9_1',
+            'hair_back_c_10_1', 'hair_back_c_11_1', 'hair_back_c_12_1', 'hair_back_c_13_1', 'hair_back_c_14_1',
+            'hair_back_c_15_1', 'hair_back_c_16_1', 'hair_back_c_17_1', 'hair_back_c_18_1', 'hair_back_c_19_1',
+            'hair_back_c_20_1', 'hair_back_c_21_1', 'hair_back_c_22_1'
+          ],
+          stiffness: 0.085, damping: 0.91, inertia: 0.45, windFreq: 1.30, windAmp: 0.16, phase: 0.8
+        },
+        // 3. Chùm tóc sau lưng bên phải (Back Right - trọn vẹn 21 khớp xương từ đỉnh đầu đến chót đuôi)
+        {
+          name: 'Back Right',
+          side: 'back',
+          boneNames: [
+            'hair_back_r_0_1', 'hair_back_r_1_1', 'hair_back_r_2_1', 'hair_back_r_3_1', 'hair_back_r_4_1',
+            'hair_back_r_5_1', 'hair_back_r_6_1', 'hair_back_r_7_1', 'hair_back_r_8_1', 'hair_back_r_9_1',
+            'hair_back_r_10_1', 'hair_back_r_11_1', 'hair_back_r_12_1', 'hair_back_r_13_1', 'hair_back_r_14_1',
+            'hair_back_r_15_1', 'hair_back_r_16_1', 'hair_back_r_17_1', 'hair_back_r_18_1', 'hair_back_r_19_1',
+            'hair_back_r_20_1'
+          ],
+          stiffness: 0.085, damping: 0.91, inertia: 0.45, windFreq: 1.40, windAmp: 0.16, phase: 3.1
+        },
+        // 4. Bím tóc dài phía trước bên trái (Twin Left - 5 khớp xương trọn vẹn)
+        {
+          name: 'Twin Left',
+          side: 'left',
+          boneNames: ['hair_side_l_b01', 'hair_side_l_b02', 'hair_side_l_b03', 'hair_side_l_b04', 'hair_side_l_b05'],
+          stiffness: 0.090, damping: 0.91, inertia: 0.40, windFreq: 1.45, windAmp: 0.15, phase: 0.0
+        },
+        // 5. Bím tóc dài bờ vai bên phải (Twin Right - 3 khớp xương trọn vẹn)
+        {
+          name: 'Twin Right',
+          side: 'right',
+          boneNames: ['hair_side_r_d01', 'hair_side_r_d02', 'hair_side_r_d03'],
+          stiffness: 0.090, damping: 0.91, inertia: 0.40, windFreq: 1.50, windAmp: 0.15, phase: 1.3
+        },
+        // 6. Lọn tóc mai dài bên má trái (Side Left A - 3 khớp xương trọn vẹn)
+        {
+          name: 'Side Left A',
+          side: 'left',
+          boneNames: ['hair_side_l_a01', 'hair_side_l_a02', 'hair_side_l_a03'],
+          stiffness: 0.100, damping: 0.90, inertia: 0.30, windFreq: 1.60, windAmp: 0.12, phase: 0.6
+        },
+        // 7. Lọn tóc mai dài bên má phải (Side Right F - 2 khớp xương trọn vẹn)
+        {
+          name: 'Side Right F',
+          side: 'right',
+          boneNames: ['hair_side_r_f01', 'hair_side_r_f02'],
+          stiffness: 0.100, damping: 0.90, inertia: 0.30, windFreq: 1.65, windAmp: 0.12, phase: 1.8
+        },
+        // 8. Lọn tóc ngực trước bên phải (Side Right H - 1 khớp xương)
+        {
+          name: 'Side Right H',
+          side: 'right',
+          boneNames: ['hair_side_r_h01'],
+          stiffness: 0.110, damping: 0.90, inertia: 0.25, windFreq: 1.55, windAmp: 0.10, phase: 2.1
+        },
+        // 9. Lọn tóc vành tai trái (Side Left C - 1 khớp xương)
+        {
+          name: 'Side Left C',
+          side: 'left',
+          boneNames: ['hair_side_l_c01'],
+          stiffness: 0.110, damping: 0.90, inertia: 0.25, windFreq: 1.55, windAmp: 0.10, phase: 0.9
+        },
+        // 10. Tóc mái trước trán trái (Front Bangs Left - 2 khớp xương)
+        {
+          name: 'Front Bangs Left',
+          side: 'bangs',
+          boneNames: ['hair_front_l_a01', 'hair_front_l_a02'],
+          stiffness: 0.130, damping: 0.88, inertia: 0.20, windFreq: 1.80, windAmp: 0.07, phase: 0.4
+        },
+        // 11. Tóc mái trước trán phải (Front Bangs Right - 1 khớp xương)
+        {
+          name: 'Front Bangs Right',
+          side: 'bangs',
+          boneNames: ['hair_front_r_b01'],
+          stiffness: 0.130, damping: 0.88, inertia: 0.20, windFreq: 1.85, windAmp: 0.07, phase: 1.7
+        },
+        // 12. Tóc mái trước trán giữa (Front Bangs Center - 1 khớp xương)
+        {
+          name: 'Front Bangs Center',
+          side: 'bangs',
+          boneNames: ['hair_front_l_c01'],
+          stiffness: 0.130, damping: 0.88, inertia: 0.20, windFreq: 1.80, windAmp: 0.07, phase: 2.8
+        },
+        // 13. Cánh hư không sau lưng (Dress Wings - 7 khớp xương)
+        {
+          name: 'Dress Wings',
+          side: 'wings',
+          boneNames: [
+            'dress_wing_0_1', 'dress_wing_1_1', 'dress_wing_2_1', 'dress_wing_3_1',
+            'dress_wing_4_1', 'dress_wing_5_1', 'dress_wing_6_1'
+          ],
+          stiffness: 0.085, damping: 0.91, inertia: 0.42, windFreq: 1.20, windAmp: 0.16, phase: 1.1
+        }
+      ];
+
+      for (const def of chainDefs) {
+        const chainBones = [];
+        for (const bname of def.boneNames) {
+          const bone = bones[bname];
+          if (bone) {
+            // Khởi tạo trạng thái vật lý độc lập cho từng khớp xương
+            bone.userData.restRotZ = bone.rotation.z;
+            bone.userData.restRotX = bone.rotation.x;
+            bone.userData.curRotZ = 0;
+            bone.userData.curRotX = 0;
+            bone.userData.velZ = 0;
+            bone.userData.velX = 0;
+            chainBones.push(bone);
+          }
+        }
+        if (chainBones.length > 0) {
+          hairChains.push({
+            name: def.name,
+            config: def,
+            bones: chainBones
+          });
+        }
+      }
+
+      let totalRiggedBones = hairChains.reduce((acc, c) => acc + c.bones.length, 0);
+      console.log(`[Hair Physics] Đã kích hoạt vật lý sóng đa khớp từng đốt cho ${hairChains.length} chùm tóc (${totalRiggedBones} khớp xương hoạt động độc lập)!`);
+    }
+
+    function updateHairPhysics(dt, time, angVelX, angVelY) {
+      if (!hairChains || hairChains.length === 0) return;
+
+      const safeDt = Math.min(Math.max(dt, 0.001), 0.05);
+      const headYaw = headBone ? headBone.rotation.y : 0;
+      const headPitch = headBone ? headBone.rotation.x : 0;
+
+      // Đẩy trạng thái mới nhất vào buffer lịch sử
+      pushHistory(headYaw, headPitch, angVelY, angVelX, dragImpulseX, dragImpulseY);
+
+      for (const chain of hairChains) {
+        const cfg = chain.config;
+        const nBones = chain.bones.length;
+
+        for (let i = 0; i < nBones; i++) {
+          const bone = chain.bones[i];
+          const frac = (i + 1) / nBones; // Tỉ lệ từ gốc (0) đến ngọn (1.0)
+
+          // 1. Độ trễ sóng vật lý truyền dần từ gốc xuống ngọn
+          const delay = Math.min(Math.floor(i * 1.5), HIST_LEN - 1);
+          const dAngVelY = histAngVelY[delay];
+          const dAngVelX = histAngVelX[delay];
+          const dHeadYaw = histHeadYaw[delay];
+          const dHeadPitch = histHeadPitch[delay];
+          const dDragX = histDragX[delay];
+          const dDragY = histDragY[delay];
+
+          // 2. Gió tự nhiên dạng sóng lụa đa tầng (Multi-Harmonic Traveling Wave)
+          const wavePhase1 = time * cfg.windFreq + cfg.phase - i * 0.32;
+          const wavePhase2 = time * (cfg.windFreq * 1.8) + cfg.phase * 1.5 - i * 0.52;
+          const wavePhaseSlow = time * 0.75 + cfg.phase * 2.0;
+
+          // breezeAmp tăng dần từ gốc (0.06) đến ngọn (0.28) để cả lọn tóc uốn lượn uyển chuyển
+          const breezeAmp = cfg.windAmp * (0.06 + 0.22 * frac);
+          const segBreezeZ = Math.sin(wavePhase1) * breezeAmp + Math.cos(wavePhase2) * (breezeAmp * 0.40) + Math.sin(wavePhaseSlow) * (breezeAmp * 0.25);
+          const segBreezeX = Math.cos(wavePhase1 * 0.85) * (breezeAmp * 0.75) + Math.sin(wavePhase2 * 1.2) * (breezeAmp * 0.30) + Math.cos(wavePhaseSlow) * (breezeAmp * 0.20);
+
+          // 3. Quán tính chuyển động & kéo rê chuột / cửa sổ desktop
+          const lagFactor = 0.025 + 0.065 * frac;
+          const segInertiaZ = -dAngVelY * cfg.inertia * lagFactor;
+          const segInertiaX = -dAngVelX * cfg.inertia * lagFactor;
+          const segDragZ = -dDragX * cfg.inertia * (lagFactor * 2.2);
+          const segDragX = dDragY * cfg.inertia * (lagFactor * 2.2);
+
+          // 4. Giải thuật triệt tiêu xuyên thấu (Anti-Clipping) & Giữ lọn tóc ngoài cơ thể & tà áo
+          let targetZ = 0;
+          let targetX = 0;
+
+          if (cfg.side === 'back') {
+            // TÓC SAU LƯNG: Bay bồng bềnh sau lưng, không xuyên vào cột sống, cánh hay mông
+            const counterZ = -dHeadYaw * (0.025 + 0.015 * (1.0 - frac));
+            const counterX = -dHeadPitch * (0.020 + 0.012 * (1.0 - frac));
+            const baselineBackX = 0.025 * frac; // Lượn nhẹ ra sau lưng
+
+            targetZ = segBreezeZ + segInertiaZ + segDragZ + counterZ;
+            targetX = segBreezeX + segInertiaX + segDragX + counterX + baselineBackX;
+
+            // Chặn đứng hoàn toàn việc đâm vào lưng (< -0.01)
+            targetX = THREE.MathUtils.clamp(targetX, -0.01, 0.38);
+            targetZ = THREE.MathUtils.clamp(targetZ, -0.28, 0.28);
+
+          } else if (cfg.side === 'left') {
+            // TÓC TRƯỚC BÊN TRÁI (Twin Left & Side Left):
+            // Luôn giữ trôi lơ lửng phía trước ngực trái và ngoài bắp tay áo
+            const forwardFloatX = -0.08 - 0.10 * frac - Math.abs(headYaw) * 0.04;
+            const deflectSideZ = -0.04 - 0.06 * frac - Math.max(0, headYaw) * 0.05;
+
+            targetZ = segBreezeZ + segInertiaZ + segDragZ + deflectSideZ;
+            targetX = segBreezeX + segInertiaX + segDragX + forwardFloatX;
+
+            // Cấm thụt lùi vào trong ngực (+X > 0.01) hoặc ép chặt vào nách
+            targetX = THREE.MathUtils.clamp(targetX, -0.32, 0.01);
+            targetZ = THREE.MathUtils.clamp(targetZ, -0.30, 0.06);
+
+          } else if (cfg.side === 'right') {
+            // TÓC TRƯỚC BÊN PHẢI (Twin Right & Side Right H):
+            // ĐẶC TRỊ KHỬ XUYÊN KHUỶU TAY PHẢI VÀ TÀ ÁO:
+            // Đẩy góc lượn trôi ra phía trước ngực và vạt sang phải để phủ trước bắp tay
+            const forwardFloatX = -0.10 - 0.12 * frac - Math.abs(headYaw) * 0.04;
+            const deflectSideZ = 0.06 + 0.08 * frac - Math.min(0, headYaw) * 0.05;
+
+            targetZ = segBreezeZ + segInertiaZ + segDragZ + deflectSideZ;
+            targetX = segBreezeX + segInertiaX + segDragX + forwardFloatX;
+
+            // Giới hạn an toàn: Luôn nổi phía trước, không bao giờ thụt lùi vào khuỷu tay
+            targetX = THREE.MathUtils.clamp(targetX, -0.35, 0.01);
+            targetZ = THREE.MathUtils.clamp(targetZ, -0.04, 0.32);
+
+          } else if (cfg.side === 'wings') {
+            const baselineBackX = 0.020;
+            targetZ = segBreezeZ * 0.8 + segInertiaZ * 0.6 + segDragZ * 0.7;
+            targetX = segBreezeX * 0.8 + segInertiaX * 0.6 + segDragX * 0.7 + baselineBackX;
+            targetZ = THREE.MathUtils.clamp(targetZ, -0.22, 0.22);
+            targetX = THREE.MathUtils.clamp(targetX, -0.02, 0.28);
+
+          } else if (cfg.side === 'bangs') {
+            // TÓC MÁI TRƯỚC TRÁN: Đung đưa nhẹ mềm mại
+            targetZ = segBreezeZ * 0.5 - dAngVelY * 0.012;
+            targetX = segBreezeX * 0.5 - dAngVelX * 0.010;
+            targetZ = THREE.MathUtils.clamp(targetZ, -0.08, 0.08);
+            targetX = THREE.MathUtils.clamp(targetX, -0.06, 0.06);
+          }
+
+          // 5. Tích hợp lò xo đàn hồi Spring-Damper cho TỪNG ĐỐT XƯƠNG
+          // Độ cứng vừa phải, giảm chấn cao tạo cảm giác tóc lụa mềm mại không cứng đơ
+          const segStiffness = cfg.stiffness * (1.05 - 0.22 * frac);
+          const segDamping = cfg.damping * (0.99 - 0.03 * frac);
+
+          const forceZ = (targetZ - bone.userData.curRotZ) * segStiffness * 60;
+          bone.userData.velZ = (bone.userData.velZ + forceZ * safeDt) * segDamping;
+          bone.userData.curRotZ += bone.userData.velZ * 60 * safeDt;
+
+          const forceX = (targetX - bone.userData.curRotX) * segStiffness * 60;
+          bone.userData.velX = (bone.userData.velX + forceX * safeDt) * segDamping;
+          bone.userData.curRotX += bone.userData.velX * 60 * safeDt;
+
+          // 6. Cập nhật trực tiếp lên xương của mesh
+          bone.rotation.z = (bone.userData.restRotZ || 0) + bone.userData.curRotZ;
+          bone.rotation.x = (bone.userData.restRotX || 0) + bone.userData.curRotX;
+        }
+      }
+    }
+
+    // 3.6 HỆ THỐNG VẬT LÝ DAO ĐỘNG BẦU NGỰC KHI CẦM NẮM KÉO RÊ (Bust Jiggle & Drag Momentum Physics)
+    let leftBreastBones = [];
+    let rightBreastBones = [];
+
+    let breastDisplaceX = 0, breastDisplaceY = 0, breastDisplaceZ = 0;
+    let breastVelX = 0, breastVelY = 0, breastVelZ = 0;
+
+    function initBreastPhysics(bonesList) {
+      leftBreastBones = [];
+      rightBreastBones = [];
+
+      for (const bone of bonesList) {
+        const name = bone.name || '';
+        const nameL = name.toLowerCase();
+        const isLeft = name.includes('左胸') || nameL.includes('leftbreast') || nameL.includes('leftbust');
+        const isRight = name.includes('右胸') || nameL.includes('rightbreast') || nameL.includes('rightbust');
+
+        if (isLeft || isRight) {
+          bone.userData.restPosX = bone.position.x;
+          bone.userData.restPosY = bone.position.y;
+          bone.userData.restPosZ = bone.position.z;
+          if (isLeft) leftBreastBones.push(bone);
+          if (isRight) rightBreastBones.push(bone);
+        }
+      }
+      console.log(`[Breast Physics] Đã kích hoạt vật lý bầu ngực: ${leftBreastBones.length} khớp trái, ${rightBreastBones.length} khớp phải!`);
+    }
+
+    function updateBreastPhysics(dt, time, angVelX, angVelY) {
+      if (leftBreastBones.length === 0 && rightBreastBones.length === 0) return;
+
+      const safeDt = Math.min(Math.max(dt, 0.001), 0.05);
+
+      // 1. Phản ứng quán tính khi kéo rê / cầm nắm di chuyển cửa sổ Desktop (Window Drag Velocity)
+      // Khi kéo nhanh sang phải (dragImpulseX > 0), ngực bị quán tính giật trễ sang trái (-X)
+      // Khi kéo nhanh xuống dưới (dragImpulseY > 0), ngực nảy bồng bềnh lên trên (+Y)
+      const targetDragX = -dragImpulseX * 0.0032;
+      const targetDragY = dragImpulseY * 0.0042;
+
+      // 2. Nhịp thở phập phồng nhẹ nhàng và quán tính khi quay đầu theo chuột
+      const breathBounce = Math.sin(time * 3.0) * 0.0008;
+      const headTurnLagX = -angVelY * 0.0007;
+      const headTurnLagY = -angVelX * 0.0009;
+
+      const targetX = targetDragX + headTurnLagX;
+      const targetY = targetDragY + breathBounce + headTurnLagY;
+      const targetZ = -Math.abs(dragImpulseY) * 0.0015 + Math.abs(dragImpulseX) * 0.0010;
+
+      // 3. Hệ lò xo đàn hồi Spring-Damper (Bust Jiggle đàn hồi mềm mại)
+      const stiffness = 0.36;
+      const damping = 0.86;
+
+      const forceX = (targetX - breastDisplaceX) * stiffness * 60;
+      breastVelX = (breastVelX + forceX * safeDt) * damping;
+      breastDisplaceX += breastVelX * 60 * safeDt;
+
+      const forceY = (targetY - breastDisplaceY) * stiffness * 60;
+      breastVelY = (breastVelY + forceY * safeDt) * damping;
+      breastDisplaceY += breastVelY * 60 * safeDt;
+
+      const forceZ = (targetZ - breastDisplaceZ) * stiffness * 60;
+      breastVelZ = (breastVelZ + forceZ * safeDt) * damping;
+      breastDisplaceZ += breastVelZ * 60 * safeDt;
+
+      // Giới hạn biên độ an toàn tuyệt đối
+      breastDisplaceX = THREE.MathUtils.clamp(breastDisplaceX, -0.016, 0.016);
+      breastDisplaceY = THREE.MathUtils.clamp(breastDisplaceY, -0.022, 0.022);
+      breastDisplaceZ = THREE.MathUtils.clamp(breastDisplaceZ, -0.012, 0.015);
+
+      // 4. Áp dụng trực tiếp độ dịch chuyển lên các khớp xương bầu ngực
+      for (let i = 0; i < leftBreastBones.length; i++) {
+        const bone = leftBreastBones[i];
+        bone.position.x = bone.userData.restPosX + breastDisplaceX;
+        bone.position.y = bone.userData.restPosY + breastDisplaceY;
+        bone.position.z = bone.userData.restPosZ + breastDisplaceZ;
+      }
+
+      for (let i = 0; i < rightBreastBones.length; i++) {
+        const bone = rightBreastBones[i];
+        bone.position.x = bone.userData.restPosX + breastDisplaceX;
+        bone.position.y = bone.userData.restPosY + breastDisplaceY;
+        bone.position.z = bone.userData.restPosZ + breastDisplaceZ;
+      }
+    }
+
+    // 3.7 HỆ THỐNG VẬT LÝ ĐA KHỚP CHO TÀ ÁO, ĐUÔI CÁ, CÁNH PHA LÊ & DẢI LỤA (Multi-Joint Cloth & Fin Physics)
+    let skirtChains = [];
+
+    function initSkirtPhysics(bones) {
+      skirtChains = [];
+
+      // 1. 15 Chùm tà áo & đuôi váy xòe quanh hông (Dress Q chains 0 to 14)
+      // Góc cực thực tế quanh xương chậu (0 deg = thẳng phía trước, +/-180 deg = phía sau)
+      const skirtAnglesDeg = [
+        0.0, 33.5, 61.6, 84.7, 104.0, 120.3, 140.3, 165.7,
+        -165.7, -140.3, -120.3, -104.0, -84.7, -61.6, -33.5
+      ];
+
+      for (let c = 0; c < 15; c++) {
+        const chainBones = [];
+        for (let j = 0; j <= 11; j++) {
+          const key = `dress_q_${j}_${c}`;
+          const bone = bones[key];
+          if (bone) {
+            bone.userData.restRotX = bone.rotation.x;
+            bone.userData.restRotY = bone.rotation.y;
+            bone.userData.restRotZ = bone.rotation.z;
+            bone.userData.velX = 0;
+            bone.userData.velY = 0;
+            bone.userData.velZ = 0;
+            bone.userData.curOffsetX = 0;
+            bone.userData.curOffsetY = 0;
+            bone.userData.curOffsetZ = 0;
+            chainBones.push(bone);
+          }
+        }
+        if (chainBones.length > 0) {
+          const deg = skirtAnglesDeg[c] !== undefined ? skirtAnglesDeg[c] : (c * 24.0);
+          const rad = deg * (Math.PI / 180.0);
+          const outX = Math.sin(rad); // Pháp tuyến hướng ra ngoài (Width)
+          const outZ = Math.cos(rad); // Pháp tuyến hướng ra ngoài (Depth)
+          skirtChains.push({
+            name: `Dress Flap ${c}`,
+            type: 'skirt',
+            chainIndex: c,
+            outX: outX,
+            outZ: outZ,
+            tanX: -outZ,
+            tanZ: outX,
+            bones: chainBones,
+            stiffness: 0.088,
+            damping: 0.91,
+            windFreq: 1.25 + (c % 4) * 0.16,
+            windAmp: 0.12,
+            phase: rad,
+            inertiaWeight: 0.005
+          });
+        }
+      }
+
+      // 2. Hai dải vây đuôi cá phía sau hông (Left & Right QB Fishtail Fins: unused 左QB / 右QB)
+      const qbLeftBones = [];
+      const qbRightBones = [];
+      for (let q = 0; q <= 5; q++) {
+        const lKey = `unused_左qb_${q}_1`;
+        const rKey = `unused_右qb_${q}_1`;
+        let boneL = bones[lKey];
+        let boneR = bones[rKey];
+        if (!boneL && typeof allBonesList !== 'undefined') {
+          boneL = allBonesList.find(b => b.name && b.name.includes('左QB') && b.name.includes(`${q}_1`));
+        }
+        if (!boneR && typeof allBonesList !== 'undefined') {
+          boneR = allBonesList.find(b => b.name && b.name.includes('右QB') && b.name.includes(`${q}_1`));
+        }
+        if (boneL) {
+          boneL.userData.restQuat = boneL.quaternion.clone();
+          boneL.userData.velX = 0;
+          boneL.userData.velZ = 0;
+          boneL.userData.curOffsetX = 0;
+          boneL.userData.curOffsetZ = 0;
+          qbLeftBones.push(boneL);
+        }
+        if (boneR) {
+          boneR.userData.restQuat = boneR.quaternion.clone();
+          boneR.userData.velX = 0;
+          boneR.userData.velZ = 0;
+          boneR.userData.curOffsetX = 0;
+          boneR.userData.curOffsetZ = 0;
+          qbRightBones.push(boneR);
+        }
+      }
+
+      if (qbLeftBones.length > 0) {
+        skirtChains.push({
+          name: 'Left Fishtail Fin',
+          type: 'fishtail',
+          side: 'left',
+          bones: qbLeftBones,
+          stiffness: 0.075,
+          damping: 0.93,
+          windFreq: 1.15,
+          windAmp: 0.05,
+          phase: 1.2,
+          inertiaWeight: 0.004
+        });
+      }
+
+      if (qbRightBones.length > 0) {
+        skirtChains.push({
+          name: 'Right Fishtail Fin',
+          type: 'fishtail',
+          side: 'right',
+          bones: qbRightBones,
+          stiffness: 0.075,
+          damping: 0.93,
+          windFreq: 1.15,
+          windAmp: 0.05,
+          phase: 2.5,
+          inertiaWeight: 0.004
+        });
+      }
+
+      // 3. Cánh pha lê sau lưng (Wing bones: Wing 0_1 -> Wing 3_1)
+      const wingBones = [];
+      for (let w = 0; w <= 3; w++) {
+        const key = `wing_${w}_1`;
+        let bone = bones[key];
+        if (!bone && typeof allBonesList !== 'undefined') {
+          bone = allBonesList.find(b => b.name && b.name.toLowerCase().startsWith(`wing ${w}_1`));
+        }
+        if (bone) {
+          bone.userData.restQuat = bone.quaternion.clone();
+          bone.userData.velX = 0;
+          bone.userData.velZ = 0;
+          bone.userData.curOffsetX = 0;
+          bone.userData.curOffsetZ = 0;
+          wingBones.push(bone);
+        }
+      }
+      if (wingBones.length > 0) {
+        skirtChains.push({
+          name: 'Crystal Wings',
+          type: 'wing',
+          bones: wingBones,
+          stiffness: 0.080,
+          damping: 0.92,
+          windFreq: 1.10,
+          windAmp: 0.035,
+          phase: 0.75,
+          inertiaWeight: 0.003
+        });
+      }
+
+      // 4. Dải lụa tay áo & cổ chân (Sleeve Ribbons & Foot Ribbons)
+      const ribbonDefs = [
+        { name: 'Left Sleeve Ribbon', keys: ['dress_+armletss_l_m06', 'dress_+armletss_l_m04', 'dress_+armletss_l_m05'], amp: 0.12, phase: 1.2 },
+        { name: 'Right Sleeve Ribbon', keys: ['dress_+armletss_r_m06', 'dress_+armletss_r_m04', 'dress_+armletss_r_m05'], amp: 0.12, phase: 2.5 },
+        { name: 'Left Ankle Ribbon', keys: ['dress_footletss_l_a01'], amp: 0.08, phase: 3.1 },
+        { name: 'Right Ankle Ribbon', keys: ['dress_footletss_r_a01'], amp: 0.08, phase: 4.2 }
+      ];
+
+      for (const rdef of ribbonDefs) {
+        const rbBones = [];
+        for (const k of rdef.keys) {
+          const bone = bones[k];
+          if (bone) {
+            bone.userData.restRotX = bone.rotation.x;
+            bone.userData.restRotY = bone.rotation.y;
+            bone.userData.restRotZ = bone.rotation.z;
+            bone.userData.velX = 0;
+            bone.userData.velY = 0;
+            bone.userData.velZ = 0;
+            bone.userData.curOffsetX = 0;
+            bone.userData.curOffsetY = 0;
+            bone.userData.curOffsetZ = 0;
+            rbBones.push(bone);
+          }
+        }
+        if (rbBones.length > 0) {
+          skirtChains.push({
+            name: rdef.name,
+            type: 'ribbon',
+            bones: rbBones,
+            stiffness: 0.095,
+            damping: 0.90,
+            windFreq: 1.45,
+            windAmp: rdef.amp,
+            phase: rdef.phase,
+            inertiaWeight: 0.005
+          });
+        }
+      }
+
+      const totalSkirtBones = skirtChains.reduce((acc, c) => acc + c.bones.length, 0);
+      console.log(`[Skirt Physics] Đã kích hoạt vật lý đa khớp cho ${skirtChains.length} chùm tà áo, đuôi cá, cánh (${totalSkirtBones} khớp xương hoạt động độc lập)!`);
+    }
+
+    // Ma trận hệ số chiếu chuyển động đa trục chính xác cho 15 chùm tà áo Dress Q
+    // Đảm bảo targetRadial > 0 LUÔN LUÔN mở rộng ra ngoài hình nón bảo vệ (Anti-Penetration), không bao giờ đâm vào đùi/body
+    const skirtCoeffs = [
+      { rx_r: -1.34, rx_t: -0.00, rz_r: -0.00, rz_t:  1.00 }, // Chain 0: Mặt trước thẳng (0 deg)
+      { rx_r: -1.13, rx_t: -0.69, rz_r: -0.72, rz_t:  0.77 }, // Chain 1: Trước phải (33.5 deg)
+      { rx_r: -0.69, rx_t: -1.07, rz_r: -1.09, rz_t:  0.31 }, // Chain 2: Hông trước phải (61.6 deg)
+      { rx_r: -0.26, rx_t: -1.18, rz_r: -1.17, rz_t: -0.09 }, // Chain 3: Hông phải (84.7 deg)
+      { rx_r:  0.07, rx_t: -1.13, rz_r: -1.10, rz_t: -0.33 }, // Chain 4: Hông phải ngang (104 deg)
+      { rx_r:  0.29, rx_t: -0.98, rz_r: -1.00, rz_t: -0.39 }, // Chain 5: Sau phải (120 deg)
+      { rx_r:  0.42, rx_t: -0.70, rz_r: -0.72, rz_t: -0.45 }, // Chain 6: Đuôi cá phải (140 deg) - Ổn định cuống đuôi
+      { rx_r:  0.87, rx_t: -0.50, rz_r: -0.50, rz_t: -0.87 }, // Chain 7: Đuôi cá sau giữa phải (165.7 deg)
+      { rx_r:  0.87, rx_t:  0.50, rz_r:  0.50, rz_t: -0.87 }, // Chain 8: Đuôi cá sau giữa trái (-165.7 deg)
+      { rx_r:  0.42, rx_t:  0.70, rz_r:  0.72, rz_t: -0.45 }, // Chain 9: Đuôi cá trái (-140 deg) - Ổn định cuống đuôi
+      { rx_r:  0.29, rx_t:  0.98, rz_r:  1.00, rz_t: -0.39 }, // Chain 10: Sau trái (-120 deg)
+      { rx_r:  0.07, rx_t:  1.13, rz_r:  1.10, rz_t: -0.33 }, // Chain 11: Hông trái ngang (-104 deg)
+      { rx_r: -0.26, rx_t:  1.18, rz_r:  1.17, rz_t: -0.09 }, // Chain 12: Hông trái (-84.7 deg)
+      { rx_r: -0.69, rx_t:  1.07, rz_r:  1.09, rz_t:  0.31 }, // Chain 13: Hông trước trái (-61.6 deg)
+      { rx_r: -1.13, rx_t:  0.69, rz_r:  0.72, rz_t:  0.77 }  // Chain 14: Trước trái (-33.5 deg)
+    ];
+
+    function updateSkirtPhysics(dt, time) {
+      if (!skirtChains || skirtChains.length === 0) return;
+
+      const safeDt = Math.min(Math.max(dt, 0.001), 0.05);
+
+      for (const chain of skirtChains) {
+        const nBones = chain.bones.length;
+
+        // Gió desktop tự nhiên đa tầng: Sóng chính + sóng hài bậc 2 + gió chậm
+        const waveMain = Math.sin(time * chain.windFreq + chain.phase) * chain.windAmp;
+        const waveHarmonic = Math.cos(time * (chain.windFreq * 1.8) + chain.phase * 1.4) * (chain.windAmp * 0.40);
+        const waveSlow = Math.sin(time * 0.70 + chain.phase * 0.8) * (chain.windAmp * 0.35);
+
+        const windZ = waveMain + waveHarmonic + waveSlow;
+        const windX = Math.cos(time * (chain.windFreq * 0.9) + chain.phase) * (chain.windAmp * 0.75) + waveHarmonic * 0.45;
+
+        // Quán tính khi cầm nắm kéo rê / rung lắc cửa sổ (Drag Momentum)
+        const dragLagX = -dragImpulseX * chain.inertiaWeight;
+        const dragLagZ = dragImpulseY * (chain.inertiaWeight * 0.95);
+
+        if (chain.type === 'skirt') {
+          const coeff = skirtCoeffs[chain.chainIndex] || skirtCoeffs[0];
+          const isFishtailRoot = (chain.chainIndex === 6 || chain.chainIndex === 9);
+          const extRadial = windX * chain.outX + windZ * chain.outZ + dragLagX * chain.outX + dragLagZ * chain.outZ;
+          const extTangential = windX * chain.tanX + windZ * chain.tanZ + dragLagX * chain.tanX + dragLagZ * chain.tanZ;
+
+          // Phân phối góc quay trên toàn chuỗi nBones để tránh tích lũy quá mức (Anti-Penetration)
+          const segScale = 1.0 / nBones;
+
+          for (let i = 0; i < nBones; i++) {
+            const bone = chain.bones[i];
+            const frac = (i + 1) / nBones;
+            const flexFactor = (0.25 + 0.75 * Math.pow(frac, 0.85)) * (isFishtailRoot ? 0.35 : 1.0);
+
+            // baselineOutward: Độ xòe chữ A tự nhiên mềm mại, phân phối đều cho từng khớp
+            const baselineOutward = (0.025 + 0.035 * frac) * segScale;
+
+            // Sóng gợn tiếp tuyến (Side-to-side ripple wave):
+            const ripple = Math.sin(time * 2.6 + chain.phase - i * 0.28) * (chain.windAmp * 0.20 * frac * segScale);
+            const targetTangential = THREE.MathUtils.clamp((extTangential * segScale + ripple) * flexFactor, -0.035, 0.035);
+
+            // Đích đến hướng tâm an toàn: không bao giờ để tà áo quặp vào trong cơ thể
+            let targetRadial = baselineOutward + Math.max(0, extRadial * (0.30 * frac * segScale));
+            targetRadial = Math.min(0.065, targetRadial);
+
+            // Chiếu trực tiếp theo ma trận chuyển hệ tọa độ thực tế của khớp xương Dress Q:
+            const targetRotX = (coeff.rx_r * targetRadial + coeff.rx_t * targetTangential);
+            const targetRotZ = (coeff.rz_r * targetRadial + coeff.rz_t * targetTangential);
+
+            const segStiffness = chain.stiffness * (1.05 - 0.20 * frac);
+            const segDamping = chain.damping * (0.99 - 0.04 * frac);
+
+            const forceX = (targetRotX - bone.userData.curOffsetX) * segStiffness * 60;
+            bone.userData.velX = (bone.userData.velX + forceX * safeDt) * segDamping;
+            bone.userData.curOffsetX += bone.userData.velX * 60 * safeDt;
+
+            const forceZ = (targetRotZ - bone.userData.curOffsetZ) * segStiffness * 60;
+            bone.userData.velZ = (bone.userData.velZ + forceZ * safeDt) * segDamping;
+            bone.userData.curOffsetZ += bone.userData.velZ * 60 * safeDt;
+
+            bone.rotation.x = bone.userData.restRotX + bone.userData.curOffsetX;
+            bone.rotation.z = bone.userData.restRotZ + bone.userData.curOffsetZ;
+          }
+        } else if (chain.type === 'fishtail') {
+          // VÂY ĐUÔI CÁ (Left & Right QB Fishtail Fins: Thướt tha bồng bềnh sau lưng, cấm đâm vào đùi/váy)
+          for (let i = 0; i < nBones; i++) {
+            const bone = chain.bones[i];
+            const frac = (i + 1) / nBones;
+            const flex = 0.25 + 0.75 * frac;
+
+            // Góc nghiêng trục X cục bộ: Luôn ngửa nhẹ về sau (-Z thế giới), vểnh lên tự nhiên
+            const hoverPitch = 0.012 + Math.sin(time * chain.windFreq + chain.phase - i * 0.35) * chain.windAmp;
+            // Khóa chốt an toàn: Luôn >= 0.005 radian (chỉ có thể trôi ra sau, không bao giờ gập ngược vào chân)
+            const targetPitch = Math.max(0.005, (hoverPitch + Math.max(0, -windZ * 0.03)) * flex);
+
+            // Vẫy mềm sang 2 bên như vây cá betta
+            const targetSide = Math.cos(time * (chain.windFreq * 0.85) + chain.phase - i * 0.40) * (chain.windAmp * 0.30) * flex;
+
+            const segStiffness = chain.stiffness * (1.05 - 0.15 * frac);
+            const segDamping = chain.damping;
+
+            const forceX = (targetPitch - bone.userData.curOffsetX) * segStiffness * 60;
+            bone.userData.velX = (bone.userData.velX + forceX * safeDt) * segDamping;
+            bone.userData.curOffsetX += bone.userData.velX * 60 * safeDt;
+            bone.userData.curOffsetX = Math.max(0.003, bone.userData.curOffsetX); // Khóa chốt chống đâm
+
+            const forceZ = (targetSide - bone.userData.curOffsetZ) * segStiffness * 60;
+            bone.userData.velZ = (bone.userData.velZ + forceZ * safeDt) * segDamping;
+            bone.userData.curOffsetZ += bone.userData.velZ * 60 * safeDt;
+
+            // Áp dụng qua Quaternion cục bộ triệt tiêu 100% hiện tượng Gimbal Lock và lộn ngược
+            const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), bone.userData.curOffsetX);
+            const qSide = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), bone.userData.curOffsetZ);
+            bone.quaternion.copy(bone.userData.restQuat).multiply(qPitch).multiply(qSide);
+          }
+        } else if (chain.type === 'wing') {
+          // CÁNH PHA LÊ SAU LƯNG (Crystal Wings: Bay lơ lửng thanh thoát bằng Quaternion, không bao giờ đâm vào lưng)
+          for (let i = 0; i < nBones; i++) {
+            const bone = chain.bones[i];
+            const frac = (i + 1) / nBones;
+            const flex = 0.25 + 0.75 * frac;
+
+            // Nhịp thở bồng bềnh nhẹ nhàng của cánh pha lê
+            const hover = 0.010 + Math.sin(time * 1.35 - i * 0.25) * 0.008;
+            const targetPitch = THREE.MathUtils.clamp((hover + Math.max(0, -windZ * 0.025)) * flex, 0.003, 0.035);
+
+            const segStiffness = chain.stiffness * (1.05 - 0.15 * frac);
+            const segDamping = chain.damping;
+
+            const forceX = (targetPitch - bone.userData.curOffsetX) * segStiffness * 60;
+            bone.userData.velX = (bone.userData.velX + forceX * safeDt) * segDamping;
+            bone.userData.curOffsetX += bone.userData.velX * 60 * safeDt;
+            bone.userData.curOffsetX = THREE.MathUtils.clamp(bone.userData.curOffsetX, 0.002, 0.040);
+
+            // Quaternion cục bộ: quay quanh trục X cục bộ luôn đưa cánh trôi ra phía sau (-Z thế giới), cấm đâm vào cột sống
+            const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), bone.userData.curOffsetX);
+            bone.quaternion.copy(bone.userData.restQuat).multiply(qPitch);
+          }
+        } else {
+          // Sleeve Ribbons & Foot Ribbons (Dải lụa tay áo & cổ chân)
+          for (let i = 0; i < nBones; i++) {
+            const bone = chain.bones[i];
+            const frac = (i + 1) / nBones;
+            const flexFactor = 0.35 + 0.65 * frac;
+            // Baseline lùi sau và tỏa ra ngoài để dải lụa tay áo không đâm vào hông/thân
+            const baselineRibbonX = 0.05 * flexFactor;
+            const targetRotX = baselineRibbonX + (windZ + dragLagZ) * 0.6 * flexFactor;
+            const targetRotZ = (windX + dragLagX) * 0.6 * flexFactor;
+
+            const segStiffness = chain.stiffness * (1.05 - 0.20 * frac);
+            const segDamping = chain.damping * (0.99 - 0.04 * frac);
+
+            const forceX = (targetRotX - bone.userData.curOffsetX) * segStiffness * 60;
+            bone.userData.velX = (bone.userData.velX + forceX * safeDt) * segDamping;
+            bone.userData.curOffsetX += bone.userData.velX * 60 * safeDt;
+
+            const forceZ = (targetRotZ - bone.userData.curOffsetZ) * segStiffness * 60;
+            bone.userData.velZ = (bone.userData.velZ + forceZ * safeDt) * segDamping;
+            bone.userData.curOffsetZ += bone.userData.velZ * 60 * safeDt;
+
+            // Khóa chốt an toàn không để dải lụa ép ngược vào trong thân
+            bone.userData.curOffsetX = Math.max(0.01 * flexFactor, bone.userData.curOffsetX);
+
+            bone.rotation.x = bone.userData.restRotX + bone.userData.curOffsetX;
+            bone.rotation.z = bone.userData.restRotZ + bone.userData.curOffsetZ;
+          }
+        }
+      }
+    }
+
+
+    // 4. Global Mouse Tracking & Window Drag Tracking
+    let targetMouseX = 0, targetMouseY = 0;
+    let curMouseX = 0, curMouseY = 0;
+
+    window.onGlobalMouseMove = function(normX, normY, winVx, winVy) {
+      targetMouseX = THREE.MathUtils.clamp(normX, -1.0, 1.0);
+      targetMouseY = THREE.MathUtils.clamp(normY, -1.0, 1.0);
+
+      if (winVx !== undefined && winVy !== undefined) {
+        // Chuyển đổi vận tốc kéo thả vị trí cửa sổ thành xung lực quán tính đung đưa tóc
+        const clampedVx = THREE.MathUtils.clamp(winVx, -70, 70);
+        const clampedVy = THREE.MathUtils.clamp(winVy, -70, 70);
+        dragImpulseX += clampedVx * 0.015;
+        dragImpulseY += clampedVy * 0.012;
+      }
+    };
+
+    let prevClientX = null, prevClientY = null;
+    window.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      targetMouseX = (e.clientX - cx) / (window.innerWidth / 2);
+      targetMouseY = (e.clientY - cy) / (window.innerHeight / 2);
+
+      if (prevClientX !== null && prevClientY !== null) {
+        const dx = e.clientX - prevClientX;
+        const dy = e.clientY - prevClientY;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+          dragImpulseX += THREE.MathUtils.clamp(dx, -30, 30) * 0.008;
+          dragImpulseY += THREE.MathUtils.clamp(dy, -30, 30) * 0.006;
+        }
+      }
+      prevClientX = e.clientX;
+      prevClientY = e.clientY;
+    });
+
+    // 5. HỆ THỐNG HITBOX TƯƠNG TÁC ĐA VÙNG (Head, Face, Neck, Shoulders, Arms, Chest, Thighs, Legs)
+    const raycaster = new THREE.Raycaster();
+    const mouseVec = new THREE.Vector2();
+
+    const hitboxQuotes = {
+      patting: [
+        "Ưm... ấm áp quá~ Chủ nhân cứ xoa đầu em mãi thế này làm em muốn làm nũng mãi thôi... ưm~",
+        "Chủ nhân thích xoa đầu em thế sao? Cảm giác được bàn tay Chủ nhân xoa đầu thật là dễ chịu quá đi à~",
+        "Ưm... tay Chủ nhân dịu dàng thật đấy. Thôi được rồi, cho phép Chủ nhân xoa đầu em thêm một chút nữa nhé~",
+        "Chủ nhân xoa đầu làm tóc em xù lên hết rồi nè! Nhưng mà em thích lắm, Chủ nhân không được dừng lại đâu nha~"
+      ],
+      head: [
+        "Chủ nhân không được gõ đầu em hoài mà... ngốc mất thì ai ở cạnh chăm sóc Chủ nhân đây!",
+        "Chủ nhân không được nghịch kẹp tóc của em mà! Kẹp tóc pha lê của em quý lắm nha!",
+        "Tóc em vừa chải mượt mà, Chủ nhân không được làm rối đâu nha, phải đền trà sữa cho em đấy!"
+      ],
+      face: [
+        "Chủ nhân không được véo má em mà... mặt em đỏ bừng lên hết rồi này!",
+        "Chủ nhân không được chạm vào mặt em hoài như thế... tim em đập thình thịch rồi nè Chủ nhân!",
+        "Má em mịn lắm đúng không? Nhưng mà chỉ cho Chủ nhân ngắm thôi, Chủ nhân không được nghịch hoài nha~"
+      ],
+      lips: [
+        "Chủ nhân không được... chỗ đó của em là môi mà, sao Chủ nhân lại chạm ngón tay vào chứ?! Ngại chết đi được á Chủ nhân!",
+        "Chủ nhân không được chạm vào môi em như thế mà! Mặt em nóng ran lên rồi nè!",
+        "Mặt em đỏ bừng lên như quả cà chua rồi nè... Chủ nhân không được trêu em nữa mà!",
+        "Ư-Ưm... ngón tay Chủ nhân chạm vào làm môi em nhột quá à! Mau bỏ tay ra đi mà Chủ nhân!"
+      ],
+      neck: [
+        "Chủ nhân không được... chỗ đó của em nhột lắm! Cổ của em nhạy cảm lắm, đừng có chọc vào đó mà Chủ nhân!",
+        "Chủ nhân không được... chỗ đó của em nhột muốn chết luôn á! Chủ nhân rút tay lại mau lên nào!",
+        "Rụt cả cổ lại rồi này! Chủ nhân không được trêu em hoài như thế nha, em giận thật đấy!"
+      ],
+      shoulders: [
+        "Chủ nhân vỗ vai em làm gì thế? Định rủ em đi chơi hay nhờ em việc gì đúng không nào?",
+        "Vai em hôm nay hơi mỏi một chút, Chủ nhân mà bóp vai cho em là em quý Chủ nhân lắm đấy nha~",
+        "Chủ nhân dựa vào vai em này! Em luôn ở cạnh đồng hành cùng Chủ nhân trên màn hình desktop mà!"
+      ],
+      arms: [
+        "Tay em đang khoanh mà, Chủ nhân muốn nắm tay hay dắt em đi dạo thế ạ?",
+        "Chủ nhân chạm vào tay em làm gì đó? Muốn thi nắm tay với em không nào!",
+        "Nắm tay nè! Chủ nhân đã nắm tay em rồi là không được buông ra đâu đấy nhé~",
+        "Chủ nhân không được kéo tay áo em nha, tuột nơ xinh bây giờ đấy!"
+      ],
+      chest: [
+        "Chủ nhân không được... chỗ đó của em nhạy cảm lắm, sao Chủ nhân lại chạm vào ngực em chứ!",
+        "Chủ nhân không được táy máy chỗ đó của em mà! Ngại quá đi à Chủ nhân ơi!",
+        "Chủ nhân không được... mặt em đỏ bừng lên rồi nè, sao Chủ nhân lại chạm vào chỗ đó của em thế hả?!",
+        "Chủ nhân không được... mau bỏ tay ra mau lên! Chỗ đó của em đang làm tim em đập loạn xạ cả lên rồi đây này!"
+      ],
+      belly: [
+        "Chủ nhân không được chọc vào eo em mà... chỗ đó của em nhột lắm, rụt cả bụng lại rồi nè!",
+        "Chủ nhân không được... chỗ đó của em nhột muốn chết luôn á! Chủ nhân đừng táy máy nữa mà!",
+        "Chủ nhân không được đụng vào eo em! Chỗ đó của em nhạy cảm lắm, giật cả mình luôn nè!",
+        "Chủ nhân không được chọc vào rốn em mà! Nhột phát khóc luôn rồi này Chủ nhân xấu tính ơi!"
+      ],
+      pelvis: [
+        "Chủ nhân không được... chỗ đó của em nhạy cảm lắm, sao Chủ nhân lại táy máy chạm vào chỗ đó của em chứ?!",
+        "Chủ nhân không được... tay Chủ nhân chạm vào chỗ đó của em làm em giật bắn cả mình rồi nè!",
+        "Chủ nhân không được chạm vào chỗ đó của em mà... mặt em đỏ bừng như quả cà chua rồi này, bắt đền Chủ nhân đấy!",
+        "Chủ nhân không được nghịch lung tung vào chỗ đó của em nha... chỗ đó của em nhột muốn xỉu luôn rồi á!",
+        "Chủ nhân không được... chỗ đó của em nhạy cảm lắm đấy, Chủ nhân trêu em quá đi à... bỏ tay ra mau đi mà!",
+        "Chủ nhân không được... sao Chủ nhân cứ nhè đúng chỗ đó của em mà chạm thế hả?! Ngại chết đi được á Chủ nhân!"
+      ],
+      thighs: [
+        "Chủ nhân không được... chỗ đó của em nhột lắm, sao Chủ nhân lại táy máy chạm vào đùi em chứ?!",
+        "Chủ nhân không được... tay Chủ nhân mò đi đâu đấy? Coi chừng em giận Chủ nhân thật bây giờ đấy!",
+        "Chủ nhân không được... chỗ đó của em nhạy cảm lắm! Nhột muốn chết mất thôi, mau bỏ tay ra đi mà Chủ nhân!"
+      ],
+      legs: [
+        "Chủ nhân không được chọc vào chân em mà, chân em để đứng canh chừng cho Chủ nhân mà!",
+        "Nhột quá à! Chủ nhân không được véo chân em nữa mà!",
+        "Chân em đi giày đứng mỏi cả ngày rồi, Chủ nhân xoa bóp chân giúp em đi!",
+        "Chủ nhân không được chọc nữa mà, em dẫm lên icon desktop của Chủ nhân bây giờ đấy!"
+      ]
+    };
+
+    let reactionTimer = 0;
+    let activeReaction = null;
+
+    function triggerHitboxReaction(part) {
+      // Phát giọng nói Edge-TTS, hiển thị popup ngoài cửa sổ và cử động môi
+      isSpeaking = true;
+      speakTimer = 0;
+      if (backendApi && backendApi.trigger_hitbox_reaction) {
+        backendApi.trigger_hitbox_reaction(part);
+      } else if (backendApi && backendApi.speak_hitbox) {
+        const quotes = hitboxQuotes[part] || hitboxQuotes.head;
+        const quote = quotes[Math.floor(Math.random() * quotes.length)];
+        backendApi.speak_hitbox(quote);
+      }
+
+      activeReaction = part;
+      reactionTimer = 2.2;
+
+      if (part === 'patting' || part === 'head') {
+        if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[smileIndex] = 1.0;
+        }
+      } else if (part === 'face') {
+        if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[smileIndex] = 0.8;
+        }
+        if (mouthAIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0.4;
+        }
+      } else if (part === 'lips') {
+        if (mouthAIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0.25;
+        }
+        if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[smileIndex] = 0.7;
+        }
+        if (headBone) {
+          headBone.rotation.x = -0.05;
+          headBone.rotation.y = (Math.random() > 0.5 ? 1 : -1) * 0.08;
+        }
+      } else if (part === 'neck') {
+        if (headBone) headBone.rotation.x = -0.18;
+        dragImpulseX += (Math.random() > 0.5 ? 1 : -1) * 8.0;
+      } else if (part === 'shoulders') {
+        if (spineUpper) spineUpper.rotation.x = -0.05;
+        dragImpulseX += (Math.random() > 0.5 ? 1 : -1) * 10.0;
+      } else if (part === 'arms') {
+        if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[smileIndex] = 0.5;
+        }
+        dragImpulseX += (Math.random() > 0.5 ? 1 : -1) * 12.0;
+      } else if (part === 'chest') {
+        if (mouthAIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0.6;
+        }
+        dragImpulseY += 26.0;
+        dragImpulseX += (Math.random() - 0.5) * 18.0;
+      } else if (part === 'belly') {
+        if (mouthAIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0.5;
+        }
+        if (spineUpper) spineUpper.rotation.x = -0.08;
+        dragImpulseX += (Math.random() - 0.5) * 14.0;
+        dragImpulseY += 16.0;
+      } else if (part === 'pelvis') {
+        if (mouthAIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0.65;
+        }
+        if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[smileIndex] = 0.85;
+        }
+        if (model) {
+          model.position.y = 0.040;
+        }
+        dragImpulseX += (Math.random() - 0.5) * 18.0;
+        dragImpulseY += 22.0;
+      } else if (part === 'thighs') {
+        if (mouthAIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0.5;
+        }
+        if (model) model.position.y = 0.035;
+        dragImpulseY += 16.0;
+        dragImpulseX += (Math.random() - 0.5) * 14.0;
+      } else if (part === 'legs') {
+        if (model) model.position.y = 0.050;
+        dragImpulseY += 14.0;
+      }
+    }
+
+    function raycastAt(clientX, clientY) {
+      if (!model) return null;
+      const rect = canvas.getBoundingClientRect();
+      mouseVec.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouseVec.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouseVec, camera);
+      const intersects = raycaster.intersectObjects(model.children, true);
+      const visibleHits = intersects.filter(hit => hit.object.isMesh && hit.object.visible);
+      return visibleHits.length > 0 ? visibleHits[0] : null;
+    }
+
+    function classifyHitPart(hit) {
+      if (!hit) return 'body';
+      const pt = hit.point;
+      const mname = (hit.object.name || '').toLowerCase();
+
+      // 1. Môi / Miệng (Lips & Mouth)
+      if (pt.y >= 1.420 && pt.y <= 1.465 && Math.abs(pt.x) <= 0.035) {
+        return 'lips';
+      }
+      // 2. Mặt / Má (Face & Cheeks): Má, mũi, cằm
+      if (mname.includes('face') || mname.includes('002') || (pt.y >= 1.38 && pt.y < 1.52 && Math.abs(pt.x) <= 0.08)) {
+        return 'face';
+      }
+      // 2. Đầu & Kẹp tóc (Head & Hairpins): Đỉnh đầu, kẹp tóc, chóp tóc
+      if (pt.y >= 1.50 || mname.includes('hair') || mname.includes('012')) {
+        return 'head';
+      }
+      // 3. Cổ (Neck)
+      if (pt.y >= 1.32 && pt.y < 1.38 && Math.abs(pt.x) <= 0.08) {
+        return 'neck';
+      }
+      // 4. Vai (Shoulders)
+      if (pt.y >= 1.25 && pt.y < 1.38 && Math.abs(pt.x) > 0.08 && Math.abs(pt.x) <= 0.20) {
+        return 'shoulders';
+      }
+      // 5. Tay (Arms, Forearms, Hands)
+      if (Math.abs(pt.x) > 0.13 || mname.includes('arm') || mname.includes('hand') || mname.includes('finger') || mname.includes('010')) {
+        return 'arms';
+      }
+      // 6. Ngực / Thân trên (Chest / Upper Body)
+      if (pt.y >= 1.10 && pt.y < 1.32 && Math.abs(pt.x) <= 0.09) {
+        return 'chest';
+      }
+      // 7. Vùng eo & rốn (Belly / Upper Waist)
+      if (pt.y >= 0.98 && pt.y < 1.10 && Math.abs(pt.x) <= 0.12) {
+        return 'belly';
+      }
+      // 7.5 Vùng xương chậu & hông (Pelvis / Hips / Crotch)
+      if (pt.y >= 0.78 && pt.y < 0.98 && Math.abs(pt.x) <= 0.16) {
+        return 'pelvis';
+      }
+      // 8. Đùi / Váy (Thighs / Skirt)
+      if (pt.y >= 0.52 && pt.y < 0.78) {
+        return 'thighs';
+      }
+      // 9. Chân & Giày (Legs, Knees, Feet & Boots)
+      return 'legs';
+    }
+
+    // Tương tác Xoa Đầu (Hold-to-Pat) và Click Từng Vị Trí
+    let isMouseDown = false;
+    let startMouseX = 0, startMouseY = 0;
+    let hasDragged = false;
+    let isHeadPressCandidate = false;
+    let headPressStartTime = 0;
+    let isPattingActive = false;
+    let patAnimTimer = 0;
+    const DRAG_MOVE_THRESHOLD = 6;
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      isMouseDown = true;
+      startMouseX = e.clientX;
+      startMouseY = e.clientY;
+      hasDragged = false;
+      isPattingActive = false;
+
+      const hit = raycastAt(e.clientX, e.clientY);
+      if (hit) {
+        const part = classifyHitPart(hit);
+        if (part === 'head') {
+          isHeadPressCandidate = true;
+          headPressStartTime = Date.now();
+        } else {
+          isHeadPressCandidate = false;
+        }
+      } else {
+        isHeadPressCandidate = false;
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (isMouseDown && !hasDragged) {
+        const dist = Math.hypot(e.clientX - startMouseX, e.clientY - startMouseY);
+        // Nếu đang ấn xoa đầu trong phạm vi 18px quanh đỉnh đầu, không kích hoạt kéo cửa sổ
+        if (isHeadPressCandidate && dist < 18) {
+          return;
+        }
+        if (dist >= DRAG_MOVE_THRESHOLD) {
+          hasDragged = true;
+          isHeadPressCandidate = false;
+          isPattingActive = false;
+          if (backendApi && backendApi.start_drag) {
+            backendApi.start_drag();
+          }
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (!isMouseDown) return;
+      isMouseDown = false;
+
+      if (isPattingActive) {
+        // Hoàn tất chuỗi hành động xoa đầu (Hold to pat)
+        triggerHitboxReaction('patting');
+        isPattingActive = false;
+        isHeadPressCandidate = false;
+        return;
+      }
+
+      if (!hasDragged && e.button === 0) {
+        const hit = raycastAt(e.clientX, e.clientY);
+        if (hit) {
+          const part = classifyHitPart(hit);
+          console.log(`[Hitbox Hit] Vị trí: ${part}, 3D: (${hit.point.x.toFixed(2)}, ${hit.point.y.toFixed(2)}, ${hit.point.z.toFixed(2)})`);
+          triggerHitboxReaction(part);
+        }
+      }
+      isHeadPressCandidate = false;
+    });
+
+    const bubbleHeader = document.querySelector('.header-row');
+    if (bubbleHeader) {
+      bubbleHeader.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && backendApi && backendApi.start_drag) {
+          backendApi.start_drag();
+        }
+      });
+    }
+
+    // 6. Render Loop 60 FPS - Cử động mượt mà, giữ vững dáng khoanh tay và theo dõi chuột
+    let clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      // Cập nhật Animation Mixer cho chuỗi chào khởi động -> về pose đứng mặc định
+      if (mixer) {
+        mixer.update(delta);
+      }
+
+      greetingTime += delta;
+      // Trọng số tracking chuột: 0 trong lúc cúi chào khởi động, tăng mượt lên 1.0 sau 2.0s
+      const trackingWeight = THREE.MathUtils.clamp((greetingTime - 2.0) / 0.5, 0, 1.0);
+
+      // Damping chuyển động chuột mượt mà không bị giật lag
+      curMouseX += (targetMouseX - curMouseX) * 0.12;
+      curMouseY += (targetMouseY - curMouseY) * 0.12;
+
+      // XOAY ĐẦU & CỔ THEO CHUỘT (Chuẩn hướng góc nhìn: chuột sang phải đầu quay phải, chuột xuống dưới đầu cúi nhìn xuống rõ ràng)
+      if (headBone && neckBone && trackingWeight > 0) {
+        headBone.rotation.y = THREE.MathUtils.lerp(headBone.rotation.y, curMouseX * 0.35, trackingWeight);
+        neckBone.rotation.y = THREE.MathUtils.lerp(neckBone.rotation.y, curMouseX * 0.15, trackingWeight);
+
+        // Góc nhìn lên/xuống: Khi chuột ở dưới (curMouseY > 0), tăng góc gập để đầu và cổ cúi xuống nhìn rõ ràng
+        const headPitch = curMouseY > 0 ? curMouseY * 0.45 : curMouseY * 0.22;
+        const neckPitch = curMouseY > 0 ? curMouseY * 0.20 : curMouseY * 0.10;
+
+        headBone.rotation.x = THREE.MathUtils.lerp(headBone.rotation.x, headPitch, trackingWeight);
+        neckBone.rotation.x = THREE.MathUtils.lerp(neckBone.rotation.x, neckPitch, trackingWeight);
+      }
+
+      // HƠI THỞ LỒNG NGỰC & LƯNG CHÚC NHẸ THEO CHUỘT
+      const breath = Math.sin(time * 1.5);
+      if (spineUpper && trackingWeight >= 1.0) {
+        const spinePitch = curMouseY > 0 ? curMouseY * 0.08 : 0;
+        spineUpper.rotation.x = breath * 0.012 + spinePitch;
+        spineUpper.rotation.y = curMouseX * 0.05;
+      }
+
+      // TÍNH VẬN TỐC GÓC CỦA ĐẦU & CẬP NHẬT VẬT LÝ TÓC (Secondary Motion Hair Physics)
+      let headAngVelX = 0, headAngVelY = 0;
+      if (headBone) {
+        headAngVelX = (headBone.rotation.x - prevHeadRotX) / Math.max(delta, 0.001);
+        headAngVelY = (headBone.rotation.y - prevHeadRotY) / Math.max(delta, 0.001);
+        prevHeadRotX = headBone.rotation.x;
+        prevHeadRotY = headBone.rotation.y;
+      }
+      updateHairPhysics(delta, time, headAngVelX, headAngVelY);
+      updateBreastPhysics(delta, time, headAngVelX, headAngVelY);
+      updateSkirtPhysics(delta, time);
+
+      // Suy giảm xung lực kéo thả cửa sổ mượt mà theo thời gian
+      dragImpulseX *= 0.88;
+      dragImpulseY *= 0.88;
+
+      // 4. CHỚP MẮT TỰ NHIÊN (Natural Eye Blinking every 3.5s)
+      if (faceMesh && faceMesh.morphTargetInfluences && blinkIndex !== undefined && blinkIndex >= 0) {
+        const cycle = time % 3.6;
+        if (cycle < 0.16) {
+          const blinkVal = Math.sin((cycle / 0.16) * Math.PI);
+          faceMesh.morphTargetInfluences[blinkIndex] = blinkVal;
+        } else {
+          faceMesh.morphTargetInfluences[blinkIndex] = 0;
+        }
+      }
+
+      // 5. KHẨU HÌNH KHI NÓI CHUYỆN (Lip-Sync Speech)
+      if (isSpeaking) {
+        speakTimer += delta;
+        if (faceMesh && faceMesh.morphTargetInfluences && mouthAIndex !== undefined && mouthAIndex >= 0) {
+          const mouthOpen = Math.abs(Math.sin(speakTimer * 10.0)) * 0.75;
+          faceMesh.morphTargetInfluences[mouthAIndex] = mouthOpen;
+        }
+        if (headBone) {
+          headBone.rotation.x += Math.sin(speakTimer * 5.0) * 0.02;
+        }
+      } else {
+        if (faceMesh && faceMesh.morphTargetInfluences && mouthAIndex !== undefined && mouthAIndex >= 0) {
+          faceMesh.morphTargetInfluences[mouthAIndex] = 0;
+        }
+      }
+
+      // Cập nhật động tác xoa đầu liên tục khi ấn giữ chuột (Hold to Pat)
+      if (isMouseDown && isHeadPressCandidate && !hasDragged) {
+        const pressElapsed = Date.now() - headPressStartTime;
+        if (pressElapsed > 300) {
+          isPattingActive = true;
+          patAnimTimer += delta;
+          if (headBone) {
+            headBone.rotation.z = Math.sin(patAnimTimer * 7.5) * 0.12;
+            headBone.rotation.x = -0.10 + Math.sin(patAnimTimer * 3.5) * 0.05;
+          }
+          if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+            faceMesh.morphTargetInfluences[smileIndex] = 1.0;
+          }
+        }
+      }
+
+      // Dập tắt dần độ nảy của model nếu chạm chân
+      if (model && model.position.y > 0) {
+        model.position.y = Math.max(0, model.position.y - delta * 0.35);
+      }
+
+      // Xử lý hoàn trả biểu cảm sau phản ứng hitbox
+      if (reactionTimer > 0) {
+        reactionTimer -= delta;
+        if (activeReaction === 'head' && headBone) {
+          headBone.rotation.z = Math.sin(reactionTimer * 4.0) * 0.08;
+        }
+        if (reactionTimer <= 0) {
+          activeReaction = null;
+          if (smileIndex >= 0 && faceMesh && faceMesh.morphTargetInfluences) {
+            faceMesh.morphTargetInfluences[smileIndex] = 0;
+          }
+          if (headBone) headBone.rotation.z = 0;
+          setTimeout(() => { isSpeaking = false; }, 1500);
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // 7. Giao tiếp Backend (Ollama + Edge-TTS) & Điều Khiển Khung Chat
+    let backendApi = null;
+    const bubbleContainer = document.getElementById('bubble-container');
+    const btnCloseBubble = document.getElementById('btn-close-bubble');
+
+    window.setChatBubbleVisible = function(visible) {
+      if (bubbleContainer) {
+        bubbleContainer.style.display = visible ? 'block' : 'none';
+      }
+    };
+
+    if (btnCloseBubble) {
+      btnCloseBubble.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.setChatBubbleVisible(false);
+        if (backendApi && backendApi.set_bubble_visible) {
+          backendApi.set_bubble_visible(false);
+        }
+      });
+    }
+
+    // Khóa hoàn toàn menu mặc định của trình duyệt và mở Menu ngữ cảnh RedMagic của PyQt6
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (backendApi && backendApi.show_context_menu) {
+        backendApi.show_context_menu();
+      }
+    });
+
+    // Cho phép phóng to / thu nhỏ model 3D bằng Ctrl + Con lăn chuột
+    window.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.05 : -0.05;
+        if (backendApi && backendApi.adjust_scale) {
+          backendApi.adjust_scale(delta);
+        }
+      }
+    }, { passive: false });
+
+    window.startSpeaking = function() {
+      isSpeaking = true;
+      speakTimer = 0;
+    };
+    window.stopSpeaking = function() {
+      isSpeaking = false;
+    };
+
+    let webChannelInitialized = false;
+    function initWebChannel() {
+      if (webChannelInitialized) return;
+      if (typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined' && qt.webChannelTransport) {
+        webChannelInitialized = true;
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+          backendApi = channel.objects.pyBridge;
+          console.log("Connected to Python QWebChannel backend successfully!");
+          if (backendApi && backendApi.get_bubble_visible) {
+            backendApi.get_bubble_visible(function(visible) {
+              window.setChatBubbleVisible(visible);
+            });
+          }
+        });
+      }
+    }
+    if (document.readyState === 'complete') {
+      initWebChannel();
+    } else {
+      window.addEventListener('load', initWebChannel);
+    }
+
+    const bubbleText = document.getElementById('bubble-text');
+    const chatInput = document.getElementById('chat-input');
+    const btnSend = document.getElementById('btn-send');
+    const btnInspect = document.getElementById('btn-inspect');
+
+    function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatInput.value = '';
+      bubbleText.innerText = "Mora 3D đang suy nghĩ...";
+      isSpeaking = true;
+      speakTimer = 0;
+
+      if (backendApi && backendApi.send_chat) {
+        backendApi.send_chat(text, function(reply) {
+          bubbleText.innerText = reply;
+          setTimeout(() => { isSpeaking = false; }, 3500);
+        });
+      }
+    }
+
+    function inspectScreen() {
+      bubbleText.innerText = "Mora 3D đang soi màn hình...";
+      isSpeaking = true;
+      speakTimer = 0;
+
+      if (backendApi && backendApi.inspect_screen) {
+        backendApi.inspect_screen(function(reply) {
+          bubbleText.innerText = reply;
+          setTimeout(() => { isSpeaking = false; }, 3500);
+        });
+      }
+    }
+
+    btnSend.onclick = sendChat;
+    btnInspect.onclick = inspectScreen;
+    chatInput.onkeydown = (e) => {
+      if (e.key === 'Enter') sendChat();
+    };
+  </script>
+</body>
+</html>
